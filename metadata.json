@@ -1,0 +1,6 @@
+{
+  "name": "ShareMax",
+  "description": "A professional platform for sharing photos and videos in their original quality.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
