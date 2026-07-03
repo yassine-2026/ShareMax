@@ -7,6 +7,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { ToastProvider } from '@/context/ToastContext';
+import { AuthProvider } from '@/context/AuthContext';
 import { ToastContainer } from '@/components/ui/ToastContainer';
 import { AppLayout } from '@/components/layout/AppLayout';
 
@@ -25,23 +26,25 @@ export default function App() {
   return (
     <ThemeProvider defaultTheme="system">
       <ToastProvider>
-        <Router>
-          <AppLayout>
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/upload" element={<Upload />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/file/:id" element={<FileView />} />
-              <Route path="/faq" element={<FAQ />} />
-              <Route path="/contact" element={<Contact />} />
-              <Route path="/privacy" element={<Privacy />} />
-              <Route path="/terms" element={<Terms />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </AppLayout>
-        </Router>
-        <ToastContainer />
+        <AuthProvider>
+          <Router>
+            <AppLayout>
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/upload" element={<Upload />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/file/:id" element={<FileView />} />
+                <Route path="/faq" element={<FAQ />} />
+                <Route path="/contact" element={<Contact />} />
+                <Route path="/privacy" element={<Privacy />} />
+                <Route path="/terms" element={<Terms />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </AppLayout>
+          </Router>
+          <ToastContainer />
+        </AuthProvider>
       </ToastProvider>
     </ThemeProvider>
   );

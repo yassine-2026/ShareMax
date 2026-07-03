@@ -1,45 +1,90 @@
-import React, { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, Navigate } from 'react-router-dom';
 import { Download, Link as LinkIcon, Share2, QrCode, Trash2, Edit2, Play, Pause, Maximize, ZoomIn, ZoomOut, MoreVertical } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { useToast } from '@/context/ToastContext';
+import { useAuth } from '@/context/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
-
-// Mock Data
-const mockFile = {
-  id: '123',
-  name: 'landscape_photography_iceland.jpg',
-  type: 'image', // 'image' or 'video'
-  size: '14.2 MB',
-  date: '2023-10-15T14:23:00Z',
-  views: 1245,
-  downloads: 342,
-  url: 'https://images.unsplash.com/photo-1476610182048-b716b8518aae?ixlib=rb-4.0.3&auto=format&fit=crop&w=2400&q=80',
-  resolution: '6000 x 4000',
-  camera: 'Sony A7IV',
-};
 
 export const FileView = () => {
   const { id } = useParams<{ id: string }>();
   const { addToast } = useToast();
+  const { isAuthenticated, isLoading } = useAuth();
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [fileData, setFileData] = useState<any>(null);
+
+  useEffect(() => {
+    if (isAuthenticated && id) {
+      fetch(`/api/files/${id}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.file) {
+            setFileData(data.file);
+          } else {
+            addToast('File not found', 'error');
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          addToast('Failed to load file', 'error');
+        });
+    }
+  }, [id, isAuthenticated, addToast]);
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(window.location.href);
-    addToast('Link copied to clipboard', 'success');
+    if (fileData?.webViewLink) {
+      navigator.clipboard.writeText(fileData.webViewLink);
+      addToast('Drive link copied to clipboard', 'success');
+    } else {
+      navigator.clipboard.writeText(window.location.href);
+      addToast('Link copied to clipboard', 'success');
+    }
   };
 
   const handleDownload = () => {
+    if (fileData?.webContentLink) {
+      window.open(fileData.webContentLink, '_blank');
+    } else {
+      window.open(`/api/files/${id}/stream`, '_blank');
+    }
     addToast('Starting download...', 'info');
   };
 
   const handleDelete = () => {
-    addToast('File moved to trash', 'warning');
+    if (confirm('Are you sure you want to delete this file?')) {
+      fetch(`/api/files/${id}`, { method: 'DELETE' })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            addToast('File deleted successfully', 'success');
+            window.location.href = '/dashboard';
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          addToast('Failed to delete file', 'error');
+        });
+    }
   };
+
+  const formatSize = (bytes: number) => {
+    if (!bytes || bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  if (isLoading) return null;
+  if (!isAuthenticated) return <Navigate to="/" />;
+  if (!fileData) return <div className="p-8 text-center">Loading...</div>;
+
+  const isImage = fileData.mimeType?.startsWith('image/');
+  const mediaUrl = `/api/files/${id}/stream`;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -48,13 +93,14 @@ export const FileView = () => {
         {/* Media Viewer */}
         <div className="lg:w-2/3 xl:w-3/4 flex flex-col">
           <div className="bg-muted/30 rounded-2xl border overflow-hidden relative flex items-center justify-center min-h-[500px] max-h-[800px]">
-            {mockFile.type === 'image' ? (
+            {isImage ? (
               <div className="relative w-full h-full overflow-hidden flex items-center justify-center group">
                 <img 
-                  src={mockFile.url} 
-                  alt={mockFile.name} 
+                  src={mediaUrl} 
+                  alt={fileData.name} 
                   className="max-w-full max-h-full object-contain transition-transform duration-300"
                   style={{ transform: `scale(${zoom})` }}
+                  crossOrigin="anonymous"
                 />
                 
                 {/* Controls Overlay */}
@@ -74,34 +120,12 @@ export const FileView = () => {
               </div>
             ) : (
               <div className="relative w-full h-full bg-black flex items-center justify-center group">
-                {/* Mock Video Player */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Button variant="ghost" size="icon" className="w-16 h-16 rounded-full bg-black/50 text-white hover:bg-primary-600 hover:text-white transition-all" onClick={() => setIsPlaying(!isPlaying)}>
-                    {isPlaying ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8" />}
-                  </Button>
-                </div>
-                {/* Video controls mock */}
-                <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-2">
-                   <div className="w-full h-1 bg-white/30 rounded-full overflow-hidden cursor-pointer">
-                      <div className="h-full bg-primary-500 w-1/3" />
-                   </div>
-                   <div className="flex items-center justify-between text-white">
-                      <div className="flex items-center gap-4 text-sm">
-                        <button onClick={() => setIsPlaying(!isPlaying)}>
-                          {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                        </button>
-                        <span>01:23 / 04:56</span>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <select className="bg-transparent text-sm outline-none cursor-pointer">
-                          <option className="text-black">1.0x</option>
-                          <option className="text-black">1.5x</option>
-                          <option className="text-black">2.0x</option>
-                        </select>
-                        <button><Maximize className="w-4 h-4" /></button>
-                      </div>
-                   </div>
-                </div>
+                <video 
+                  src={mediaUrl}
+                  controls
+                  className="max-w-full max-h-full"
+                  crossOrigin="anonymous"
+                />
               </div>
             )}
           </div>
@@ -110,8 +134,8 @@ export const FileView = () => {
         {/* Info Panel */}
         <div className="lg:w-1/3 xl:w-1/4 space-y-6">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight mb-2 break-all">{mockFile.name}</h1>
-            <p className="text-sm text-muted-foreground">Uploaded on {new Date(mockFile.date).toLocaleDateString()}</p>
+            <h1 className="text-2xl font-bold tracking-tight mb-2 break-all">{fileData.name}</h1>
+            <p className="text-sm text-muted-foreground">Uploaded on {new Date(fileData.createdTime).toLocaleDateString()}</p>
           </div>
 
           <div className="flex flex-col gap-3">
@@ -133,31 +157,21 @@ export const FileView = () => {
               <h3 className="font-semibold text-sm border-b pb-2">File Details</h3>
               <div className="grid grid-cols-2 gap-y-3 text-sm">
                 <div className="text-muted-foreground">Type</div>
-                <div className="font-medium capitalize">{mockFile.type}</div>
+                <div className="font-medium capitalize">{fileData.mimeType?.split('/')[1] || 'Unknown'}</div>
                 
                 <div className="text-muted-foreground">Size</div>
-                <div className="font-medium">{mockFile.size}</div>
+                <div className="font-medium">{formatSize(parseInt(fileData.size || '0'))}</div>
                 
                 <div className="text-muted-foreground">Views</div>
-                <div className="font-medium">{mockFile.views.toLocaleString()}</div>
+                <div className="font-medium">0</div>
                 
                 <div className="text-muted-foreground">Downloads</div>
-                <div className="font-medium">{mockFile.downloads.toLocaleString()}</div>
-                
-                {mockFile.resolution && (
-                  <>
-                    <div className="text-muted-foreground">Resolution</div>
-                    <div className="font-medium">{mockFile.resolution}</div>
-                  </>
-                )}
+                <div className="font-medium">0</div>
               </div>
             </CardContent>
           </Card>
 
           <div className="flex gap-2 justify-end border-t pt-6">
-            <Button variant="ghost" size="sm" className="text-muted-foreground">
-              <Edit2 className="w-4 h-4 mr-2" /> Edit
-            </Button>
             <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950" onClick={handleDelete}>
               <Trash2 className="w-4 h-4 mr-2" /> Delete
             </Button>
@@ -180,7 +194,7 @@ export const FileView = () => {
                 <p className="text-sm text-muted-foreground">Scan to view this file on mobile</p>
               </div>
               <div className="flex justify-center mb-6 p-4 bg-white rounded-xl mx-auto w-max">
-                <QRCodeSVG value={window.location.href} size={200} level="H" />
+                <QRCodeSVG value={fileData.webViewLink || window.location.href} size={200} level="H" />
               </div>
               <Button className="w-full" variant="outline" onClick={() => setIsQRModalOpen(false)}>
                 Close

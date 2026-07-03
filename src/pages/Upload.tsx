@@ -5,8 +5,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { useToast } from '@/context/ToastContext';
+import { useAuth } from '@/context/AuthContext';
+import { Navigate } from 'react-router-dom';
 
-// Mock File type with progress
 interface UploadFile extends File {
   preview?: string;
   progress: number;
@@ -17,6 +18,7 @@ interface UploadFile extends File {
 export const Upload = () => {
   const [files, setFiles] = useState<UploadFile[]>([]);
   const { addToast } = useToast();
+  const { isAuthenticated, isLoading } = useAuth();
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map((file) => Object.assign(file, {
@@ -28,24 +30,47 @@ export const Upload = () => {
 
     setFiles((prev) => [...prev, ...newFiles]);
 
-    // Simulate upload progress
-    newFiles.forEach((file) => {
-      let currentProgress = 0;
-      const interval = setInterval(() => {
-        currentProgress += Math.random() * 20;
-        if (currentProgress >= 100) {
-          currentProgress = 100;
-          clearInterval(interval);
-          setFiles((prev) => prev.map((f) => 
-            f.id === file.id ? { ...f, progress: 100, status: 'completed' } : f
-          ));
-          addToast(`${file.name} uploaded successfully`, 'success');
-        } else {
-          setFiles((prev) => prev.map((f) => 
-            f.id === file.id ? { ...f, progress: currentProgress } : f
-          ));
-        }
-      }, 500);
+    // Handle real upload
+    newFiles.forEach(async (file) => {
+      const formData = new FormData();
+      formData.append('files', file);
+
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/upload', true);
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const progress = (event.loaded / event.total) * 100;
+            setFiles((prev) => prev.map((f) => 
+              f.id === file.id ? { ...f, progress } : f
+            ));
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status === 200) {
+            setFiles((prev) => prev.map((f) => 
+              f.id === file.id ? { ...f, progress: 100, status: 'completed' } : f
+            ));
+            addToast(`${file.name} uploaded successfully`, 'success');
+          } else {
+            throw new Error('Upload failed');
+          }
+        };
+
+        xhr.onerror = () => {
+          throw new Error('Upload failed');
+        };
+
+        xhr.send(formData);
+      } catch (error) {
+        console.error('Upload error:', error);
+        setFiles((prev) => prev.map((f) => 
+          f.id === file.id ? { ...f, status: 'error' } : f
+        ));
+        addToast(`Failed to upload ${file.name}`, 'error');
+      }
     });
   }, [addToast]);
 
@@ -63,6 +88,9 @@ export const Upload = () => {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
+
+  if (isLoading) return null;
+  if (!isAuthenticated) return <Navigate to="/" />;
 
   return (
     <div className="container mx-auto px-4 py-12 max-w-4xl">
@@ -123,7 +151,7 @@ export const Upload = () => {
                           <div className="flex items-center gap-4">
                             <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                               <div 
-                                className={`h-full transition-all duration-300 ${file.status === 'completed' ? 'bg-green-500' : 'bg-primary-500'}`}
+                                className={`h-full transition-all duration-300 ${file.status === 'completed' ? 'bg-green-500' : file.status === 'error' ? 'bg-red-500' : 'bg-primary-500'}`}
                                 style={{ width: `${file.progress}%` }}
                               />
                             </div>
@@ -137,6 +165,11 @@ export const Upload = () => {
                             {file.status === 'completed' && (
                               <span className="text-green-500 flex items-center gap-1">
                                 <CheckCircle2 className="w-3 h-3" /> Completed
+                              </span>
+                            )}
+                            {file.status === 'error' && (
+                              <span className="text-red-500 flex items-center gap-1">
+                                <X className="w-3 h-3" /> Error
                               </span>
                             )}
                           </div>
