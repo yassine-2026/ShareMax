@@ -6,6 +6,8 @@ import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { Readable } from 'stream';
+import { analyzeVideo, exportVideo } from './src/lib/videoProcessor.js';
+import os from 'os';
 
 // Ensure required env vars
 // For development, these might be missing, but we shouldn't crash if they are missing
@@ -249,6 +251,95 @@ app.get('/api/files/:id/stream', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Stream file error:', error);
     res.status(500).json({ error: 'Failed to stream file' });
+  }
+});
+
+app.get('/api/video/:id/analyze', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const oauth2Client = getOAuth2Client();
+    oauth2Client.setCredentials(req.session.tokens);
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+
+    // Download locally to analyze reliably with ffprobe
+    const fileMeta = await drive.files.get({ fileId: id, fields: 'name' });
+    const tmpPath = path.join(os.tmpdir(), `analyze_${id}_${Date.now()}`);
+    
+    const streamRes = await drive.files.get({ fileId: id, alt: 'media' }, { responseType: 'stream' });
+    const dest = fs.createWriteStream(tmpPath);
+    
+    await new Promise((resolve, reject) => {
+      streamRes.data.pipe(dest);
+      dest.on('finish', resolve);
+      dest.on('error', reject);
+    });
+
+    const info = await analyzeVideo(fs.createReadStream(tmpPath));
+    
+    // Clean up
+    fs.unlink(tmpPath, (err) => { if (err) console.error('Failed to cleanup tmp file:', err); });
+    
+    res.json({ info });
+  } catch (error) {
+    console.error('Analyze video error:', error);
+    res.status(500).json({ error: 'Failed to analyze video' });
+  }
+});
+
+app.get('/api/video/:id/export', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { platform } = req.query;
+    
+    if (!platform || !['tiktok', 'instagram', 'youtube_shorts', 'facebook', 'low_size', 'original'].includes(platform as string)) {
+      return res.status(400).json({ error: 'Invalid platform' });
+    }
+
+    // Notice we skip requireAuth for public share link usage if needed, or we might need a public alternative. 
+    // Wait, the prompt says "عند رفع فيديو", so the user is logged in. But just in case.
+    // Let's require auth for now, or fetch file safely if shared. 
+    // Actually, "لا يتم فقدان الجودة في النسخة الأصلية أبداً", "رابط تحميل حقيقي"
+    // Let's use service account or just the session auth if they are logged in.
+    let drive;
+    if (req.session?.tokens) {
+      const oauth2Client = getOAuth2Client();
+      oauth2Client.setCredentials(req.session.tokens);
+      drive = google.drive({ version: 'v3', auth: oauth2Client });
+    } else {
+      // If no auth, assume it's publicly shared. We can only access it if we have an API key or use public URL.
+      // We will enforce requireAuth for this advanced processing.
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const tmpInputPath = path.join(os.tmpdir(), `export_in_${id}_${Date.now()}`);
+    
+    const streamRes = await drive.files.get({ fileId: id, alt: 'media' }, { responseType: 'stream' });
+    const dest = fs.createWriteStream(tmpInputPath);
+    
+    await new Promise((resolve, reject) => {
+      streamRes.data.pipe(dest);
+      dest.on('finish', resolve);
+      dest.on('error', reject);
+    });
+
+    const exportedFilePath = await exportVideo(
+      fs.createReadStream(tmpInputPath),
+      platform as any,
+      `export_out_${id}_${Date.now()}`
+    );
+
+    res.download(exportedFilePath, `${platform}_optimized.mp4`, (err) => {
+      // Clean up both files after sending
+      fs.unlink(tmpInputPath, () => {});
+      fs.unlink(exportedFilePath, () => {});
+      if (err) {
+        console.error('Error sending file:', err);
+      }
+    });
+
+  } catch (error) {
+    console.error('Export video error:', error);
+    res.status(500).json({ error: 'Failed to export video' });
   }
 });
 

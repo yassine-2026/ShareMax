@@ -6,6 +6,8 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from '@/context/ThemeContext';
+import { useTranslation } from "react-i18next";
+import { useEffect } from "react";
 import { ToastProvider } from '@/context/ToastContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { ToastContainer } from '@/components/ui/ToastContainer';
@@ -21,6 +23,7 @@ import { Contact } from '@/pages/Contact';
 import { Privacy } from '@/pages/Privacy';
 import { Terms } from '@/pages/Terms';
 import { NotFound } from '@/pages/NotFound';
+import { ShareView } from '@/pages/ShareView';
 
 export default function App() {
   return (
@@ -35,6 +38,7 @@ export default function App() {
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/file/:id" element={<FileView />} />
+                <Route path="/share/:id" element={<ShareView />} />
                 <Route path="/faq" element={<FAQ />} />
                 <Route path="/contact" element={<Contact />} />
                 <Route path="/privacy" element={<Privacy />} />

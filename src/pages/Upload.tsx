@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { SmartVideoExport } from '@/components/SmartVideoExport';
 
 interface UploadFile extends window.File {
   preview?: string;
@@ -265,13 +266,13 @@ export const Upload = () => {
                                       </span>
                                       <div className="h-3 w-px bg-border" />
                                       <Button variant="link" className="h-auto p-0 text-primary-600" onClick={() => {
-                                        navigator.clipboard.writeText(`${window.location.origin}/file/${file.driveId}`);
+                                        navigator.clipboard.writeText(`${window.location.origin}/share/${file.driveId}`);
                                         addToast('Link copied to clipboard', 'success');
                                       }}>
                                         Copy Link
                                       </Button>
                                       <div className="h-3 w-px bg-border" />
-                                      <a href={`/file/${file.driveId}`} target="_blank" rel="noreferrer" className="text-primary-600 hover:underline">
+                                      <a href={`/share/${file.driveId}`} target="_blank" rel="noreferrer" className="text-primary-600 hover:underline">
                                         Open File
                                       </a>
                                       <div className="h-3 w-px bg-border" />
@@ -288,6 +289,13 @@ export const Upload = () => {
                                 </div>
                               </div>
                             </div>
+                            
+                            {/* Smart Video Export Assistant */}
+                            {file.status === 'completed' && file.driveId && file.type?.startsWith('video/') && (
+                              <div className="px-4 pb-4">
+                                <SmartVideoExport fileId={file.driveId} fileName={file.name} />
+                              </div>
+                            )}
                           </CardContent>
                         </Card>
                       </motion.div>

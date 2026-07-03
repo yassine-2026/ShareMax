@@ -37,10 +37,10 @@ export const FileView = () => {
 
   const handleCopyLink = () => {
     if (fileData?.webViewLink) {
-      navigator.clipboard.writeText(fileData.webViewLink);
+      navigator.clipboard.writeText(`${window.location.origin}/share/${id}`);
       addToast('Drive link copied to clipboard', 'success');
     } else {
-      navigator.clipboard.writeText(window.location.href);
+      navigator.clipboard.writeText(`${window.location.origin}/share/${id}`);
       addToast('Link copied to clipboard', 'success');
     }
   };
@@ -194,7 +194,7 @@ export const FileView = () => {
                 <p className="text-sm text-muted-foreground">Scan to view this file on mobile</p>
               </div>
               <div className="flex justify-center mb-6 p-4 bg-white rounded-xl mx-auto w-max">
-                <QRCodeSVG value={fileData.webViewLink || window.location.href} size={200} level="H" />
+                <QRCodeSVG value={`${window.location.origin}/share/${id}`} size={200} level="H" />
               </div>
               <Button className="w-full" variant="outline" onClick={() => setIsQRModalOpen(false)}>
                 Close

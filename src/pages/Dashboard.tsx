@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -18,6 +19,7 @@ const chartData = [
 
 export const Dashboard = () => {
   const { isAuthenticated, isLoading } = useAuth();
+  const { t } = useTranslation();
   const { addToast } = useToast();
   const [recentFiles, setRecentFiles] = useState<any[]>([]);
   const [totalSize, setTotalSize] = useState(0);
@@ -70,7 +72,7 @@ export const Dashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Storage</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("Total Storage")}</CardTitle>
             <HardDrive className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -84,7 +86,7 @@ export const Dashboard = () => {
         
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Views</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("Total Views")}</CardTitle>
             <Eye className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -97,7 +99,7 @@ export const Dashboard = () => {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Downloads</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("Total Downloads")}</CardTitle>
             <Download className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -110,7 +112,7 @@ export const Dashboard = () => {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Active Files</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("Active Files")}</CardTitle>
             <Activity className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -161,7 +163,7 @@ export const Dashboard = () => {
         {/* Recent Files */}
         <Card>
           <CardHeader>
-            <CardTitle>Recent Uploads</CardTitle>
+            <CardTitle>{t("Recent Uploads")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
