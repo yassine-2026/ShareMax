@@ -7,7 +7,6 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { SmartVideoExport } from '@/components/SmartVideoExport';
 
 interface UploadFile extends window.File {
   preview?: string;
@@ -293,7 +292,9 @@ export const Upload = () => {
                             {/* Smart Video Export Assistant */}
                             {file.status === 'completed' && file.driveId && file.type?.startsWith('video/') && (
                               <div className="px-4 pb-4">
-                                <SmartVideoExport fileId={file.driveId} fileName={file.name} />
+                                <Button className="w-full gap-2" variant="secondary" onClick={() => window.location.href = `/optimize/${file.driveId}`}>
+                                  <Video className="w-4 h-4" /> Smart Video Optimize (TikTok, Instagram, etc)
+                                </Button>
                               </div>
                             )}
                           </CardContent>

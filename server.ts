@@ -6,7 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { Readable } from 'stream';
-import { analyzeVideo, exportVideo } from './src/lib/videoProcessor.js';
+import { analyzeVideo, exportVideo, checkIfOptimized } from './src/lib/videoProcessor.js';
 import os from 'os';
 
 // Ensure required env vars
@@ -286,61 +286,151 @@ app.get('/api/video/:id/analyze', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/video/:id/export', async (req, res) => {
+const exportJobs = new Map<string, {
+  status: 'pending' | 'processing' | 'completed' | 'error',
+  progress: number,
+  result?: any,
+  error?: string
+}>();
+
+app.post('/api/video/:id/optimize', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { platform } = req.query;
+    const { platform } = req.body;
     
-    if (!platform || !['tiktok', 'instagram', 'youtube_shorts', 'facebook', 'low_size', 'original'].includes(platform as string)) {
+    if (!platform || !['tiktok', 'instagram', 'youtube_shorts', 'facebook', 'whatsapp', 'telegram', 'low_size', 'original'].includes(platform)) {
       return res.status(400).json({ error: 'Invalid platform' });
     }
 
-    // Notice we skip requireAuth for public share link usage if needed, or we might need a public alternative. 
-    // Wait, the prompt says "عند رفع فيديو", so the user is logged in. But just in case.
-    // Let's require auth for now, or fetch file safely if shared. 
-    // Actually, "لا يتم فقدان الجودة في النسخة الأصلية أبداً", "رابط تحميل حقيقي"
-    // Let's use service account or just the session auth if they are logged in.
-    let drive;
-    if (req.session?.tokens) {
-      const oauth2Client = getOAuth2Client();
-      oauth2Client.setCredentials(req.session.tokens);
-      drive = google.drive({ version: 'v3', auth: oauth2Client });
-    } else {
-      // If no auth, assume it's publicly shared. We can only access it if we have an API key or use public URL.
-      // We will enforce requireAuth for this advanced processing.
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    const oauth2Client = getOAuth2Client();
+    oauth2Client.setCredentials(req.session.tokens);
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
-    const tmpInputPath = path.join(os.tmpdir(), `export_in_${id}_${Date.now()}`);
-    
-    const streamRes = await drive.files.get({ fileId: id, alt: 'media' }, { responseType: 'stream' });
-    const dest = fs.createWriteStream(tmpInputPath);
-    
-    await new Promise((resolve, reject) => {
-      streamRes.data.pipe(dest);
-      dest.on('finish', resolve);
-      dest.on('error', reject);
-    });
+    const jobId = Math.random().toString(36).substring(2, 15);
+    exportJobs.set(jobId, { status: 'pending', progress: 0 });
 
-    const exportedFilePath = await exportVideo(
-      fs.createReadStream(tmpInputPath),
-      platform as any,
-      `export_out_${id}_${Date.now()}`
-    );
+    // Start async processing
+    (async () => {
+      let tmpInputPath = '';
+      let exportedFilePath = '';
+      try {
+        exportJobs.set(jobId, { status: 'processing', progress: 5 });
+        
+        const fileMeta = await drive.files.get({ fileId: id, fields: 'name' });
+        const originalName = fileMeta.data.name || 'video.mp4';
+        
+        tmpInputPath = path.join(os.tmpdir(), `optimize_in_${id}_${Date.now()}`);
+        const streamRes = await drive.files.get({ fileId: id, alt: 'media' }, { responseType: 'stream' });
+        const dest = fs.createWriteStream(tmpInputPath);
+        
+        await new Promise((resolve, reject) => {
+          streamRes.data.pipe(dest);
+          dest.on('finish', resolve);
+          dest.on('error', reject);
+        });
 
-    res.download(exportedFilePath, `${platform}_optimized.mp4`, (err) => {
-      // Clean up both files after sending
-      fs.unlink(tmpInputPath, () => {});
-      fs.unlink(exportedFilePath, () => {});
-      if (err) {
-        console.error('Error sending file:', err);
+        exportJobs.set(jobId, { status: 'processing', progress: 15 });
+
+        // Optional: check if already optimized
+        const info = await analyzeVideo(fs.createReadStream(tmpInputPath));
+        const originalSize = fs.statSync(tmpInputPath).size;
+
+        if (platform !== 'original' && checkIfOptimized(info, platform)) {
+          exportJobs.set(jobId, { 
+            status: 'completed', 
+            progress: 100, 
+            result: { 
+              alreadyOptimized: true,
+              originalInfo: info,
+              originalSize,
+              optimizedInfo: info,
+              optimizedSize: originalSize,
+              driveId: id
+            } 
+          });
+          fs.unlink(tmpInputPath, () => {});
+          return;
+        }
+
+        exportedFilePath = await exportVideo(
+          fs.createReadStream(tmpInputPath),
+          platform as any,
+          `optimize_out_${id}_${Date.now()}`,
+          (percent) => {
+            // Map 0-100 to 15-85
+            const mappedProgress = Math.floor(15 + (percent * 0.7));
+            const job = exportJobs.get(jobId);
+            if (job && job.status === 'processing') {
+              job.progress = mappedProgress;
+            }
+          }
+        );
+
+        exportJobs.set(jobId, { status: 'processing', progress: 85 });
+
+        // Upload back to Drive
+        const optimizedInfo = await analyzeVideo(fs.createReadStream(exportedFilePath));
+        const optimizedSize = fs.statSync(exportedFilePath).size;
+
+        const media = {
+          mimeType: 'video/mp4',
+          body: fs.createReadStream(exportedFilePath),
+        };
+        const uploadRes = await drive.files.create({
+          requestBody: {
+            name: `${platform}_optimized_${originalName}`,
+            parents: ['root'],
+          },
+          media: media,
+          fields: 'id, webViewLink',
+        });
+        
+        exportJobs.set(jobId, { status: 'processing', progress: 95 });
+
+        // Make it publicly accessible
+        await drive.permissions.create({
+          fileId: uploadRes.data.id!,
+          requestBody: { role: 'reader', type: 'anyone' }
+        });
+
+        exportJobs.set(jobId, { 
+          status: 'completed', 
+          progress: 100, 
+          result: {
+            alreadyOptimized: false,
+            originalInfo: info,
+            originalSize,
+            optimizedInfo: optimizedInfo,
+            optimizedSize: optimizedSize,
+            driveId: uploadRes.data.id,
+            webViewLink: uploadRes.data.webViewLink
+          }
+        });
+
+      } catch (err: any) {
+        console.error('Job error:', err);
+        const job = exportJobs.get(jobId);
+        if (job) {
+          job.status = 'error';
+          job.error = err.message || 'Unknown error occurred';
+        }
+      } finally {
+        if (tmpInputPath) fs.unlink(tmpInputPath, () => {});
+        if (exportedFilePath) fs.unlink(exportedFilePath, () => {});
       }
-    });
+    })();
 
-  } catch (error) {
-    console.error('Export video error:', error);
-    res.status(500).json({ error: 'Failed to export video' });
+    res.json({ jobId });
+  } catch (error: any) {
+    console.error('Optimize start error:', error);
+    res.status(500).json({ error: error.message || 'Failed to start optimization' });
   }
+});
+
+app.get('/api/video/job/:jobId', (req, res) => {
+  const job = exportJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  res.json(job);
 });
 
 app.delete('/api/files/:id', requireAuth, async (req, res) => {

@@ -56,10 +56,40 @@ export const analyzeVideo = (stream: NodeJS.ReadableStream): Promise<VideoInfo> 
   });
 };
 
+export const checkIfOptimized = (info: VideoInfo, platform: string): boolean => {
+  // Rough heuristics to decide if video is already perfect for the platform
+  if (info.format.indexOf('mp4') === -1 && info.format.indexOf('mov') === -1) return false;
+  
+  if (['tiktok', 'instagram', 'youtube_shorts'].includes(platform)) {
+    // Needs to be vertical (9:16) roughly
+    if (info.width > info.height) return false; // landscape
+    if (info.width !== 1080 || info.height !== 1920) return false;
+    if (info.fps > 30) return false;
+  }
+  
+  if (platform === 'facebook') {
+    if (info.width > 1920 || info.height > 1080) return false;
+  }
+  
+  if (platform === 'whatsapp') {
+    // WhatsApp compresses heavily. If it's more than 720p or 16MB it will compress.
+    if (info.width > 1280 && info.height > 1280) return false;
+    if (info.bitrate > 2000000) return false;
+  }
+  
+  if (platform === 'telegram') {
+    if (info.width > 1920 || info.height > 1920) return false;
+    if (info.bitrate > 3000000) return false;
+  }
+  
+  return true; // Pretty close, no need to re-encode
+};
+
 export const exportVideo = (
   inputStream: NodeJS.ReadableStream,
-  platform: 'tiktok' | 'instagram' | 'youtube_shorts' | 'facebook' | 'low_size' | 'original',
-  outputPrefix: string
+  platform: 'tiktok' | 'instagram' | 'youtube_shorts' | 'facebook' | 'whatsapp' | 'telegram' | 'low_size' | 'original',
+  outputPrefix: string,
+  onProgress?: (percent: number) => void
 ): Promise<string> => {
   return new Promise((resolve, reject) => {
     const tmpFile = path.join(os.tmpdir(), `${outputPrefix}_${platform}.mp4`);
@@ -71,7 +101,6 @@ export const exportVideo = (
       case 'instagram':
       case 'youtube_shorts':
         // Standard social media portrait format 1080x1920 (9:16)
-        // Auto pad or crop to fit the aspect ratio
         command = command
           .outputOptions([
             '-vf scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2',
@@ -95,11 +124,24 @@ export const exportVideo = (
             '-b:a 128k'
           ]);
         break;
+      case 'telegram':
+        // Telegram optimized (720p/1080p)
+        command = command
+          .outputOptions([
+            '-vf scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+            '-c:v libx264',
+            '-preset fast',
+            '-crf 26',
+            '-c:a aac',
+            '-b:a 128k'
+          ]);
+        break;
+      case 'whatsapp':
       case 'low_size':
         // Fast sharing, high compression
         command = command
           .outputOptions([
-            '-vf scale=720:-2',
+            '-vf scale=854:480:force_original_aspect_ratio=decrease,pad=854:480:(ow-iw)/2:(oh-ih)/2',
             '-c:v libx264',
             '-preset fast',
             '-crf 28',
@@ -114,6 +156,11 @@ export const exportVideo = (
     }
     
     command
+      .on('progress', (progress) => {
+        if (onProgress && progress.percent) {
+          onProgress(progress.percent);
+        }
+      })
       .on('end', () => {
         resolve(tmpFile);
       })
