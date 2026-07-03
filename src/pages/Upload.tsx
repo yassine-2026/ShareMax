@@ -1,6 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { UploadCloud, File, X, Image as ImageIcon, Film, CheckCircle2 } from 'lucide-react';
+import { UploadCloud, File, X, Image as ImageIcon, Film, CheckCircle2, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -21,6 +21,7 @@ export const Upload = () => {
   const { addToast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
   const [isUploading, setIsUploading] = useState(false);
+  const xhrRefs = useRef<Record<string, XMLHttpRequest>>({});
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map((file) => Object.assign(file, {
@@ -46,6 +47,7 @@ export const Upload = () => {
 
       try {
         const xhr = new XMLHttpRequest();
+        xhrRefs.current[file.id] = xhr;
         xhr.open('POST', '/api/upload', true);
         xhr.withCredentials = true;
 
@@ -72,6 +74,7 @@ export const Upload = () => {
             ));
             addToast(`Failed to upload ${file.name}`, 'error');
           }
+          delete xhrRefs.current[file.id];
           checkAllDone();
         };
 
@@ -80,6 +83,15 @@ export const Upload = () => {
             f.id === file.id ? { ...f, status: 'error' } : f
           ));
           addToast(`Failed to upload ${file.name}`, 'error');
+          delete xhrRefs.current[file.id];
+          checkAllDone();
+        };
+
+        xhr.onabort = () => {
+          setFiles((prev) => prev.map((f) => 
+            f.id === file.id ? { ...f, status: 'error' } : f
+          ));
+          delete xhrRefs.current[file.id];
           checkAllDone();
         };
 
@@ -108,6 +120,9 @@ export const Upload = () => {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop } as any);
 
   const removeFile = (id: string) => {
+    if (xhrRefs.current[id]) {
+      xhrRefs.current[id].abort();
+    }
     setFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
@@ -121,7 +136,6 @@ export const Upload = () => {
   };
 
   if (isLoading) return null;
-  if (!isAuthenticated) return <Navigate to="/" />;
 
   return (
     <div className="container mx-auto px-4 py-12 max-w-4xl">
@@ -130,101 +144,130 @@ export const Upload = () => {
         <p className="text-muted-foreground">Share photos and videos in their original, uncompressed quality.</p>
       </div>
 
-      <div 
-        {...getRootProps()} 
-        className={`border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer transition-colors
-          ${isDragActive ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/10' : 'border-border hover:border-primary-400 hover:bg-muted/50'}`}
-      >
-        <input {...getInputProps()} />
-        <UploadCloud className="w-16 h-16 mx-auto text-primary-500 mb-6" />
-        <h3 className="text-xl font-semibold mb-2">Drag & drop your files here</h3>
-        <p className="text-muted-foreground mb-6">or click to select files from your device</p>
-        <Button>Browse Files</Button>
-      </div>
-
-      {files.length > 0 && (
-        <div className="mt-12">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold">Ready to upload {files.length} files</h3>
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-muted-foreground">Total size: {formatSize(totalSize)}</span>
-              {files.some(f => f.status === 'pending' || f.status === 'error') && (
-                <Button onClick={handleStartUploading} disabled={isUploading}>
-                  {isUploading ? 'Uploading...' : 'Start Uploading'}
-                </Button>
-              )}
-            </div>
+      {!isAuthenticated ? (
+        <Card className="border-2 border-dashed p-12 text-center bg-muted/30">
+          <CardContent className="pt-6">
+            <UploadCloud className="w-16 h-16 mx-auto text-muted-foreground mb-6" />
+            <h3 className="text-xl font-semibold mb-4">Authentication Required</h3>
+            <p className="text-muted-foreground mb-8">You need to sign in with your Google account to upload and save files directly to your Google Drive.</p>
+            <Button size="lg" onClick={() => window.location.href = '/api/auth/google'}>
+              Sign in with Google
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div 
+            {...getRootProps()} 
+            className={`border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer transition-colors
+              ${isDragActive ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/10' : 'border-border hover:border-primary-400 hover:bg-muted/50'}`}
+          >
+            <input {...getInputProps()} />
+            <UploadCloud className="w-16 h-16 mx-auto text-primary-500 mb-6" />
+            <h3 className="text-xl font-semibold mb-2">Drag & drop your files here</h3>
+            <p className="text-muted-foreground mb-6">or click to select files from your device</p>
+            <Button>Browse Files</Button>
           </div>
 
-          <div className="space-y-4">
-            <AnimatePresence>
-              {files.map((file) => (
-                <motion.div
-                  key={file.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                >
-                  <Card className="overflow-hidden">
-                    <CardContent className="p-0">
-                      <div className="flex items-center p-4 gap-4">
-                        <div className="w-16 h-16 rounded-lg overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center">
-                          {file.preview ? (
-                            <img src={file.preview} alt="preview" className="w-full h-full object-cover" />
-                          ) : file.type.startsWith('video/') ? (
-                            <Film className="w-8 h-8 text-muted-foreground" />
-                          ) : (
-                            <File className="w-8 h-8 text-muted-foreground" />
-                          )}
-                        </div>
-                        
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-sm font-medium truncate pr-4">{file.name}</p>
-                            <button onClick={() => removeFile(file.id)} className="text-muted-foreground hover:text-red-500 flex-shrink-0">
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                          
-                          <div className="flex items-center gap-4">
-                            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                              <div 
-                                className={`h-full transition-all duration-300 ${file.status === 'completed' ? 'bg-green-500' : file.status === 'error' ? 'bg-red-500' : 'bg-primary-500'}`}
-                                style={{ width: `${file.progress}%` }}
-                              />
+          {files.length > 0 && (
+            <div className="mt-12">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-semibold">Ready to upload {files.length} files</h3>
+                <div className="flex items-center gap-4">
+                  <span className="text-sm text-muted-foreground">Total size: {formatSize(totalSize)}</span>
+                  {files.some(f => f.status === 'pending' || f.status === 'error') && (
+                    <Button onClick={handleStartUploading} disabled={isUploading}>
+                      {isUploading ? 'Uploading...' : 'Upload Now'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <AnimatePresence>
+                  {files.map((file) => (
+                    <motion.div
+                      key={file.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                    >
+                      <Card className="overflow-hidden">
+                        <CardContent className="p-0">
+                          <div className="flex items-center p-4 gap-4">
+                            <div className="w-16 h-16 rounded-lg overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center">
+                              {file.preview ? (
+                                <img src={file.preview} alt="preview" className="w-full h-full object-cover" />
+                              ) : file.type.startsWith('video/') ? (
+                                <Film className="w-8 h-8 text-muted-foreground" />
+                              ) : (
+                                <File className="w-8 h-8 text-muted-foreground" />
+                              )}
                             </div>
-                            <span className="text-xs text-muted-foreground w-12 text-right">
-                              {Math.round(file.progress)}%
-                            </span>
-                          </div>
-                          
-                          <div className="flex justify-between items-center mt-2 text-xs text-muted-foreground">
-                            <span>{formatSize(file.size)}</span>
-                            {file.status === 'completed' && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-green-500 flex items-center gap-1">
-                                  <CheckCircle2 className="w-3 h-3" /> Completed
-                                </span>
-                                {file.driveId && (
-                                  <a href={`/file/${file.driveId}`} className="text-primary-600 hover:underline">View File</a>
+                            
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-sm font-medium truncate pr-4">{file.name}</p>
+                                {file.status !== 'uploading' && (
+                                  <button onClick={() => removeFile(file.id)} className="text-muted-foreground hover:text-red-500 flex-shrink-0">
+                                    <X className="w-4 h-4" />
+                                  </button>
                                 )}
                               </div>
-                            )}
-                            {file.status === 'error' && (
-                              <span className="text-red-500 flex items-center gap-1">
-                                <X className="w-3 h-3" /> Error
-                              </span>
-                            )}
+                              
+                              <div className="flex items-center gap-4">
+                                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                                  <div 
+                                    className={`h-full transition-all duration-300 ${file.status === 'completed' ? 'bg-green-500' : file.status === 'error' ? 'bg-red-500' : 'bg-primary-500'}`}
+                                    style={{ width: `${file.progress}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs text-muted-foreground w-12 text-right">
+                                  {Math.round(file.progress)}%
+                                </span>
+                              </div>
+                              
+                              <div className="flex justify-between items-center mt-2 text-xs text-muted-foreground">
+                                <span>{formatSize(file.size)}</span>
+                                {file.status === 'completed' && file.driveId && (
+                                  <div className="flex items-center gap-3">
+                                    <span className="text-green-500 flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3" /> Completed
+                                    </span>
+                                    <div className="h-3 w-px bg-border" />
+                                    <Button variant="link" className="h-auto p-0 text-primary-600" onClick={() => {
+                                      navigator.clipboard.writeText(`${window.location.origin}/file/${file.driveId}`);
+                                      addToast('Link copied to clipboard', 'success');
+                                    }}>
+                                      Copy Link
+                                    </Button>
+                                    <div className="h-3 w-px bg-border" />
+                                    <a href={`/file/${file.driveId}`} target="_blank" rel="noreferrer" className="text-primary-600 hover:underline">
+                                      Open File
+                                    </a>
+                                    <div className="h-3 w-px bg-border" />
+                                    <a href={`/api/files/${file.driveId}/stream`} target="_blank" rel="noreferrer" download className="text-primary-600 hover:underline flex items-center gap-1">
+                                      <Download className="w-3 h-3" /> Download Original
+                                    </a>
+                                  </div>
+                                )}
+                                {file.status === 'error' && (
+                                  <span className="text-red-500 flex items-center gap-1">
+                                    <X className="w-3 h-3" /> Error
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
-        </div>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
