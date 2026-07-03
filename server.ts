@@ -12,7 +12,7 @@ import { Readable } from 'stream';
 // We will throw errors in the API endpoints if they are accessed.
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json());
 
@@ -166,6 +166,16 @@ app.post('/api/upload', requireAuth, upload.array('files'), async (req, res) => 
         fields: 'id, name, mimeType, webViewLink, webContentLink, size, createdTime',
       });
 
+      if (response.data.id) {
+        await drive.permissions.create({
+          fileId: response.data.id,
+          requestBody: {
+            role: 'reader',
+            type: 'anyone',
+          },
+        });
+      }
+
       uploadedFiles.push(response.data);
     }
 
@@ -241,6 +251,22 @@ app.get('/api/files/:id/stream', requireAuth, async (req, res) => {
 });
 
 app.delete('/api/files/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const oauth2Client = getOAuth2Client();
+    oauth2Client.setCredentials(req.session.tokens);
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+
+    await drive.files.delete({ fileId: id });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete file error:', error);
+    res.status(500).json({ error: 'Failed to delete file' });
+  }
+});
+
+// Alias for delete as requested
+app.all('/api/files/:id/delete', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const oauth2Client = getOAuth2Client();
