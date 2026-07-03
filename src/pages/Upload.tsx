@@ -11,33 +11,43 @@ import { Navigate } from 'react-router-dom';
 interface UploadFile extends File {
   preview?: string;
   progress: number;
-  status: 'uploading' | 'completed' | 'error';
+  status: 'pending' | 'uploading' | 'completed' | 'error';
   id: string;
+  driveId?: string;
 }
 
 export const Upload = () => {
   const [files, setFiles] = useState<UploadFile[]>([]);
   const { addToast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
+  const [isUploading, setIsUploading] = useState(false);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map((file) => Object.assign(file, {
       preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
       progress: 0,
-      status: 'uploading' as const,
+      status: 'pending' as const,
       id: Math.random().toString(36).substring(7),
     }));
 
     setFiles((prev) => [...prev, ...newFiles]);
+  }, []);
 
-    // Handle real upload
-    newFiles.forEach(async (file) => {
+  const handleStartUploading = () => {
+    const pendingFiles = files.filter(f => f.status === 'pending' || f.status === 'error');
+    if (pendingFiles.length === 0) return;
+    
+    setIsUploading(true);
+
+    pendingFiles.forEach(async (file) => {
+      setFiles(prev => prev.map(f => f.id === file.id ? { ...f, status: 'uploading', progress: 0 } : f));
       const formData = new FormData();
       formData.append('files', file);
 
       try {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/upload', true);
+        xhr.withCredentials = true;
 
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) {
@@ -50,17 +60,27 @@ export const Upload = () => {
 
         xhr.onload = () => {
           if (xhr.status === 200) {
+            const response = JSON.parse(xhr.responseText);
+            const uploadedFile = response.files?.find((rf: any) => rf.name === file.name);
             setFiles((prev) => prev.map((f) => 
-              f.id === file.id ? { ...f, progress: 100, status: 'completed' } : f
+              f.id === file.id ? { ...f, progress: 100, status: 'completed', driveId: uploadedFile?.id } : f
             ));
             addToast(`${file.name} uploaded successfully`, 'success');
           } else {
-            throw new Error('Upload failed');
+            setFiles((prev) => prev.map((f) => 
+              f.id === file.id ? { ...f, status: 'error' } : f
+            ));
+            addToast(`Failed to upload ${file.name}`, 'error');
           }
+          checkAllDone();
         };
 
         xhr.onerror = () => {
-          throw new Error('Upload failed');
+          setFiles((prev) => prev.map((f) => 
+            f.id === file.id ? { ...f, status: 'error' } : f
+          ));
+          addToast(`Failed to upload ${file.name}`, 'error');
+          checkAllDone();
         };
 
         xhr.send(formData);
@@ -70,9 +90,20 @@ export const Upload = () => {
           f.id === file.id ? { ...f, status: 'error' } : f
         ));
         addToast(`Failed to upload ${file.name}`, 'error');
+        checkAllDone();
       }
     });
-  }, [addToast]);
+  };
+
+  const checkAllDone = () => {
+    setFiles(prev => {
+      const stillUploading = prev.some(f => f.status === 'uploading');
+      if (!stillUploading) {
+        setIsUploading(false);
+      }
+      return prev;
+    });
+  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop } as any);
 
@@ -114,8 +145,15 @@ export const Upload = () => {
       {files.length > 0 && (
         <div className="mt-12">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold">Uploading {files.length} files</h3>
-            <span className="text-sm text-muted-foreground">Total size: {formatSize(totalSize)}</span>
+            <h3 className="text-lg font-semibold">Ready to upload {files.length} files</h3>
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-muted-foreground">Total size: {formatSize(totalSize)}</span>
+              {files.some(f => f.status === 'pending' || f.status === 'error') && (
+                <Button onClick={handleStartUploading} disabled={isUploading}>
+                  {isUploading ? 'Uploading...' : 'Start Uploading'}
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="space-y-4">
@@ -163,9 +201,14 @@ export const Upload = () => {
                           <div className="flex justify-between items-center mt-2 text-xs text-muted-foreground">
                             <span>{formatSize(file.size)}</span>
                             {file.status === 'completed' && (
-                              <span className="text-green-500 flex items-center gap-1">
-                                <CheckCircle2 className="w-3 h-3" /> Completed
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-green-500 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3" /> Completed
+                                </span>
+                                {file.driveId && (
+                                  <a href={`/file/${file.driveId}`} className="text-primary-600 hover:underline">View File</a>
+                                )}
+                              </div>
                             )}
                             {file.status === 'error' && (
                               <span className="text-red-500 flex items-center gap-1">

@@ -19,7 +19,7 @@ export const FileView = () => {
 
   useEffect(() => {
     if (isAuthenticated && id) {
-      fetch(`/api/files/${id}`)
+      fetch(`/api/files/${id}`, { credentials: 'include' })
         .then(res => res.json())
         .then(data => {
           if (data.file) {
@@ -56,7 +56,7 @@ export const FileView = () => {
 
   const handleDelete = () => {
     if (confirm('Are you sure you want to delete this file?')) {
-      fetch(`/api/files/${id}`, { method: 'DELETE' })
+      fetch(`/api/files/${id}`, { method: 'DELETE', credentials: 'include' })
         .then(res => res.json())
         .then(data => {
           if (data.success) {

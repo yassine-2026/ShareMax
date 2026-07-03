@@ -24,7 +24,7 @@ export const Dashboard = () => {
 
   useEffect(() => {
     if (isAuthenticated) {
-      fetch('/api/files')
+      fetch('/api/files', { credentials: 'include' })
         .then(res => res.json())
         .then(data => {
           if (data.files) {

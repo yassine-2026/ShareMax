@@ -12,8 +12,9 @@ import { Readable } from 'stream';
 // We will throw errors in the API endpoints if they are accessed.
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const PORT = 3000;
 
+app.set('trust proxy', 1); // Trust first proxy (Render)
 app.use(express.json());
 
 // Session setup
@@ -25,6 +26,7 @@ app.use(
     cookie: {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
+      sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
     },
   })

@@ -31,7 +31,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const checkAuth = async () => {
     try {
-      const res = await fetch('/api/auth/status');
+      const res = await fetch('/api/auth/status', { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setAuthState({
@@ -51,7 +51,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
       await checkAuth();
       window.location.href = '/';
     } catch (error) {
