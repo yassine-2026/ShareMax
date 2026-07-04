@@ -25,6 +25,7 @@ import { Terms } from '@/pages/Terms';
 import { NotFound } from '@/pages/NotFound';
 import { ShareView } from '@/pages/ShareView';
 import { OptimizeView } from '@/pages/OptimizeView';
+import { SocialOptimizer } from '@/pages/SocialOptimizer';
 
 export default function App() {
   return (
@@ -41,6 +42,7 @@ export default function App() {
                 <Route path="/file/:id" element={<FileView />} />
                 <Route path="/share/:id" element={<ShareView />} />
                 <Route path="/optimize/:id" element={<OptimizeView />} />
+                <Route path="/optimizer" element={<SocialOptimizer />} />
                 <Route path="/faq" element={<FAQ />} />
                 <Route path="/contact" element={<Contact />} />
                 <Route path="/privacy" element={<Privacy />} />

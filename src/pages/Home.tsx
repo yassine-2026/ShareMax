@@ -48,11 +48,16 @@ export const Home = () => {
               The professional platform for creators, photographers, and anyone who cares about pixel-perfect media sharing. No compression, no limits.
             </p>
             
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 flex-wrap">
               <Link to="/upload">
                 <Button size="lg" className="w-full sm:w-auto text-lg px-8 h-14">
                   Start Uploading
                   <ArrowRight className="ml-2 w-5 h-5" />
+                </Button>
+              </Link>
+              <Link to="/optimizer">
+                <Button variant="secondary" size="lg" className="w-full sm:w-auto text-lg px-8 h-14">
+                  <Zap className="mr-2 w-5 h-5" /> Optimize for Social Media
                 </Button>
               </Link>
               <Link to="/dashboard">

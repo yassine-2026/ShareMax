@@ -67,7 +67,7 @@ export const checkIfOptimized = (info: VideoInfo, platform: string): boolean => 
     if (info.fps > 30) return false;
   }
   
-  if (platform === 'facebook') {
+  if (platform === 'facebook' || platform === 'twitter' || platform === 'linkedin') {
     if (info.width > 1920 || info.height > 1080) return false;
   }
   
@@ -87,7 +87,7 @@ export const checkIfOptimized = (info: VideoInfo, platform: string): boolean => 
 
 export const exportVideo = (
   inputStream: NodeJS.ReadableStream,
-  platform: 'tiktok' | 'instagram' | 'youtube_shorts' | 'facebook' | 'whatsapp' | 'telegram' | 'low_size' | 'original',
+  platform: 'tiktok' | 'instagram' | 'youtube_shorts' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'linkedin' | 'low_size' | 'original',
   outputPrefix: string,
   onProgress?: (percent: number) => void
 ): Promise<string> => {
@@ -122,6 +122,20 @@ export const exportVideo = (
             '-crf 23',
             '-c:a aac',
             '-b:a 128k'
+          ]);
+        break;
+      case 'twitter':
+      case 'linkedin':
+        // Twitter & LinkedIn - max 1080p, good quality
+        command = command
+          .outputOptions([
+            '-vf scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
+            '-c:v libx264',
+            '-preset fast',
+            '-crf 24',
+            '-c:a aac',
+            '-b:a 128k',
+            '-r 30'
           ]);
         break;
       case 'telegram':
