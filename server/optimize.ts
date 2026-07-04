@@ -6,7 +6,7 @@ import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import * as archiver from 'archiver';
+const archiver = require('archiver');
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 ffmpeg.setFfprobePath(ffprobeInstaller.path);
@@ -82,17 +82,7 @@ optimizeRouter.get('/stream/:jobId', (req, res) => {
   res.sendFile(filePath);
 });
 
-const platformSettings: Record<string, { size: string, bitrate: string }> = {
-  'TikTok': { size: '1080x1920', bitrate: '8000k' },
-  'Instagram Reels': { size: '1080x1920', bitrate: '5000k' },
-  'Facebook': { size: '1080x1920', bitrate: '4000k' },
-  'YouTube Shorts': { size: '1080x1920', bitrate: '12000k' },
-  'WhatsApp': { size: '720x1280', bitrate: '2000k' },
-  'Telegram': { size: '720x1280', bitrate: '2500k' },
-  'X': { size: '720x1280', bitrate: '3000k' },
-  'Snapchat': { size: '1080x1920', bitrate: '5000k' },
-  'LinkedIn': { size: '1080x1920', bitrate: '4000k' }
-};
+import { platformProfiles } from './platformProfiles';
 
 optimizeRouter.post('/start', (req, res) => {
   const { jobId, platforms } = req.body as { jobId: string, platforms: string[] };
@@ -134,20 +124,22 @@ optimizeRouter.post('/start', (req, res) => {
     const origCodec = videoStream?.codec_name;
     const origPixFmt = videoStream?.pix_fmt;
     const origContainer = originalMetadata.format.format_name?.includes('mp4') ? 'mp4' : 'other';
-    const origBitrateStr = originalMetadata.format.bit_rate;
-    const origBitrate = origBitrateStr ? parseInt(origBitrateStr) : Infinity;
+    const origBitrateStr = originalMetadata.format.bit_rate as string | number | undefined;
+    const origBitrate = origBitrateStr ? Number(origBitrateStr) : Infinity;
 
     platforms.forEach(platform => {
-      const settings = platformSettings[platform] || platformSettings['TikTok'];
+      const profile = platformProfiles[platform] || platformProfiles['TikTok'];
       const outputPath = path.join(TMP_DIR, `${platform}_${jobId}.mp4`);
       
-      const targetBitrateNum = parseInt(settings.bitrate) * 1000;
+      const targetBitrateNum = parseInt(profile.videoBitrate) * 1000;
+      const origFps = videoStream?.r_frame_rate ? parseFloat(parseFps(videoStream.r_frame_rate)) : 0;
       
       // Heuristic for already optimized
       const isOptimized = 
-        origCodec === 'h264' && 
-        origPixFmt === 'yuv420p' && 
-        origContainer === 'mp4' && 
+        origCodec === profile.videoCodec.replace('lib', '') && 
+        origPixFmt === profile.pixelFormat && 
+        origContainer === profile.container && 
+        origFps <= profile.fps + 2 &&
         origBitrate <= targetBitrateNum * 1.2; // Allow 20% margin
         
       if (isOptimized) {
@@ -166,7 +158,14 @@ optimizeRouter.post('/start', (req, res) => {
           bitrate: origBitrateStr ? (Number(origBitrateStr) / 1000).toFixed(0) + ' kbps' : 'N/A',
           pixelFormat: videoStream?.pix_fmt || 'N/A',
           audioCodec: audioStream?.codec_name || 'N/A',
-          fileSize: (fs.statSync(outputPath).size / (1024 * 1024)).toFixed(2) + ' MB'
+          fileSize: (fs.statSync(outputPath).size / (1024 * 1024)).toFixed(2) + ' MB',
+          appliedSettings: {
+            preset: 'N/A (Copied)',
+            crf: 'N/A (Copied)',
+            videoBitrate: 'N/A (Copied)',
+            audioBitrate: 'N/A (Copied)',
+            container: 'N/A (Copied)'
+          }
         };
         return;
       }
@@ -174,22 +173,34 @@ optimizeRouter.post('/start', (req, res) => {
       jobState[platform].status = 'processing';
       jobState[platform].outputFile = `${platform}_${jobId}.mp4`;
       
+      const outputOptions = [
+        '-profile:v high',
+        `-pix_fmt ${profile.pixelFormat}`,
+        `-g ${profile.gop}`,
+        `-preset ${profile.preset}`,
+        `-crf ${profile.crf}`,
+        `-b:v ${profile.videoBitrate}`,
+        `-maxrate ${profile.maxBitrate}`,
+        `-bufsize ${profile.bufSize}`,
+        `-b:a ${profile.audioBitrate}`,
+        `-ar ${profile.audioSampleRate}`,
+        `-colorspace ${profile.colorSpace}`,
+        '-map_metadata -1'
+      ];
+
+      if (profile.faststart) {
+        outputOptions.push('-movflags +faststart');
+      }
+
       // Create an instance of ffmpeg for each platform
       const command = ffmpeg(sourcePath)
-      .videoCodec('libx264')
-      .audioCodec('aac')
-      .outputOptions([
-        '-profile:v high',
-        '-pix_fmt yuv420p',
-        '-movflags +faststart',
-        '-g 30',
-        `-b:v ${settings.bitrate}`,
-        '-maxrate ' + settings.bitrate,
-        '-bufsize ' + (parseInt(settings.bitrate) * 2) + 'k',
-        '-map_metadata -1'
-      ])
-      .size(settings.size)
-      .format('mp4');
+      .videoCodec(profile.videoCodec)
+      .audioCodec(profile.audioCodec)
+      .outputOptions(outputOptions)
+      .size(profile.resolution)
+      .autopad(true, 'black')
+      .fps(profile.fps)
+      .format(profile.container);
 
     command
       .on('start', () => {
@@ -227,7 +238,14 @@ optimizeRouter.post('/start', (req, res) => {
               bitrate: metadata.format.bit_rate ? (Number(metadata.format.bit_rate) / 1000).toFixed(0) + ' kbps' : 'N/A',
               pixelFormat: videoStream?.pix_fmt || 'N/A',
               audioCodec: audioStream?.codec_name || 'N/A',
-              fileSize: (fs.statSync(outputPath).size / (1024 * 1024)).toFixed(2) + ' MB'
+              fileSize: (fs.statSync(outputPath).size / (1024 * 1024)).toFixed(2) + ' MB',
+              appliedSettings: {
+                preset: profile.preset,
+                crf: profile.crf,
+                videoBitrate: profile.videoBitrate,
+                audioBitrate: profile.audioBitrate,
+                container: profile.container
+              }
             };
           }
         });

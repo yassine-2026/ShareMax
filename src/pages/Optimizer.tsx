@@ -16,6 +16,13 @@ interface VideoMetadata {
   sampleRate: string;
   fileSize: string;
   duration: string;
+  appliedSettings?: {
+    preset: string | number;
+    crf: string | number;
+    videoBitrate: string;
+    audioBitrate: string;
+    container: string;
+  };
 }
 
 interface PlatformState {
@@ -72,9 +79,9 @@ export const Optimizer = () => {
     accept: {
       'video/*': [],
       'image/*': []
-    } as any,
+    },
     maxFiles: 1
-  });
+  } as any);
 
   const handleUpload = async (uploadFile: File) => {
     setIsUploading(true);
@@ -205,7 +212,7 @@ export const Optimizer = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="bg-card border-2 border-dashed rounded-2xl p-12 text-center transition-colors"
-          {...getRootProps()}
+          {...(getRootProps() as any)}
           style={{ borderColor: isDragActive ? 'hsl(var(--primary))' : 'hsl(var(--border))' }}
         >
           <input {...getInputProps()} />
@@ -384,6 +391,18 @@ export const Optimizer = () => {
                             <ResultMeta label="Size" value={state.resultMetadata.fileSize} />
                           </div>
                           
+                          {state.resultMetadata.appliedSettings && (
+                            <div className="pt-4 border-t border-border/50">
+                              <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Applied Settings</h5>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <ResultMeta label="Target Video Bitrate" value={state.resultMetadata.appliedSettings.videoBitrate} />
+                                <ResultMeta label="Target Audio Bitrate" value={state.resultMetadata.appliedSettings.audioBitrate} />
+                                <ResultMeta label="CRF" value={String(state.resultMetadata.appliedSettings.crf)} />
+                                <ResultMeta label="Preset" value={String(state.resultMetadata.appliedSettings.preset)} />
+                              </div>
+                            </div>
+                          )}
+                          
                           <div className="flex gap-3 mt-auto pt-4 border-t">
                             <Button 
                               className="flex-1"
@@ -444,6 +463,18 @@ export const Optimizer = () => {
                   <CompareRow label="Audio Codec" orig={metadata?.audioCodec} opt={jobState[showComparison]?.resultMetadata?.audioCodec} />
                   <CompareRow label="Pixel Format" orig={metadata?.pixelFormat} opt={jobState[showComparison]?.resultMetadata?.pixelFormat} />
                   <CompareRow label="File Size" orig={metadata?.fileSize} opt={jobState[showComparison]?.resultMetadata?.fileSize} />
+                  
+                  {jobState[showComparison]?.resultMetadata?.appliedSettings && (
+                    <>
+                      <div className="col-span-3 mt-4 mb-2">
+                        <h4 className="text-sm font-bold text-muted-foreground uppercase tracking-wider border-b pb-2">FFmpeg Profile Used</h4>
+                      </div>
+                      <CompareRow label="Target Preset" orig="-" opt={String(jobState[showComparison]?.resultMetadata?.appliedSettings?.preset)} />
+                      <CompareRow label="Target CRF" orig="-" opt={String(jobState[showComparison]?.resultMetadata?.appliedSettings?.crf)} />
+                      <CompareRow label="Video Target Bitrate" orig="-" opt={jobState[showComparison]?.resultMetadata?.appliedSettings?.videoBitrate} />
+                      <CompareRow label="Container" orig="-" opt={jobState[showComparison]?.resultMetadata?.appliedSettings?.container} />
+                    </>
+                  )}
                 </div>
               </div>
             </motion.div>

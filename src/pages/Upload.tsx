@@ -8,7 +8,7 @@ import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
-interface UploadFile extends window.File {
+interface UploadFile extends File {
   preview?: string;
   progress: number;
   status: 'pending' | 'uploading' | 'completed' | 'error';
@@ -23,7 +23,7 @@ export const Upload = () => {
   const [isUploading, setIsUploading] = useState(false);
   const xhrRefs = useRef<Record<string, XMLHttpRequest>>({});
 
-  const onDrop = useCallback((acceptedFiles: window.File[]) => {
+  const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map((file) => Object.assign(file, {
       preview: (file.type || '').startsWith('image/') ? URL.createObjectURL(file) : undefined,
       progress: 0,

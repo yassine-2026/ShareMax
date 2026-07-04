@@ -1,0 +1,193 @@
+export interface PlatformProfile {
+  name: string;
+  resolution: string;
+  fps: number;
+  videoCodec: string;
+  audioCodec: string;
+  videoBitrate: string;
+  maxBitrate: string;
+  bufSize: string;
+  audioBitrate: string;
+  pixelFormat: string;
+  gop: number;
+  preset: string;
+  crf: number;
+  faststart: boolean;
+  audioSampleRate: number;
+  colorSpace: string;
+  container: string;
+}
+
+export const platformProfiles: Record<string, PlatformProfile> = {
+  'TikTok': {
+    name: 'TikTok',
+    resolution: '1080x1920',
+    fps: 30,
+    videoCodec: 'libx264',
+    audioCodec: 'aac',
+    videoBitrate: '8000k',
+    maxBitrate: '8000k',
+    bufSize: '16000k',
+    audioBitrate: '256k',
+    pixelFormat: 'yuv420p',
+    gop: 30,
+    preset: 'medium',
+    crf: 23,
+    faststart: true,
+    audioSampleRate: 48000,
+    colorSpace: 'bt709',
+    container: 'mp4'
+  },
+  'Instagram Reels': {
+    name: 'Instagram Reels',
+    resolution: '1080x1920',
+    fps: 30,
+    videoCodec: 'libx264',
+    audioCodec: 'aac',
+    videoBitrate: '5000k',
+    maxBitrate: '5000k',
+    bufSize: '10000k',
+    audioBitrate: '128k',
+    pixelFormat: 'yuv420p',
+    gop: 30,
+    preset: 'slow',
+    crf: 23,
+    faststart: true,
+    audioSampleRate: 44100,
+    colorSpace: 'bt709',
+    container: 'mp4'
+  },
+  'Facebook': {
+    name: 'Facebook',
+    resolution: '1080x1920',
+    fps: 30,
+    videoCodec: 'libx264',
+    audioCodec: 'aac',
+    videoBitrate: '4000k',
+    maxBitrate: '4000k',
+    bufSize: '8000k',
+    audioBitrate: '128k',
+    pixelFormat: 'yuv420p',
+    gop: 30,
+    preset: 'medium',
+    crf: 24,
+    faststart: true,
+    audioSampleRate: 44100,
+    colorSpace: 'bt709',
+    container: 'mp4'
+  },
+  'YouTube Shorts': {
+    name: 'YouTube Shorts',
+    resolution: '1080x1920',
+    fps: 60,
+    videoCodec: 'libx264',
+    audioCodec: 'aac',
+    videoBitrate: '12000k',
+    maxBitrate: '15000k',
+    bufSize: '24000k',
+    audioBitrate: '384k',
+    pixelFormat: 'yuv420p',
+    gop: 60,
+    preset: 'slow',
+    crf: 21,
+    faststart: true,
+    audioSampleRate: 48000,
+    colorSpace: 'bt709',
+    container: 'mp4'
+  },
+  'WhatsApp': {
+    name: 'WhatsApp',
+    resolution: '720x1280',
+    fps: 30,
+    videoCodec: 'libx264',
+    audioCodec: 'aac',
+    videoBitrate: '2000k',
+    maxBitrate: '2500k',
+    bufSize: '4000k',
+    audioBitrate: '96k',
+    pixelFormat: 'yuv420p',
+    gop: 60,
+    preset: 'fast',
+    crf: 26,
+    faststart: true,
+    audioSampleRate: 44100,
+    colorSpace: 'bt709',
+    container: 'mp4'
+  },
+  'Telegram': {
+    name: 'Telegram',
+    resolution: '1080x1920',
+    fps: 30,
+    videoCodec: 'libx264',
+    audioCodec: 'aac',
+    videoBitrate: '4000k',
+    maxBitrate: '5000k',
+    bufSize: '8000k',
+    audioBitrate: '128k',
+    pixelFormat: 'yuv420p',
+    gop: 60,
+    preset: 'medium',
+    crf: 23,
+    faststart: true,
+    audioSampleRate: 44100,
+    colorSpace: 'bt709',
+    container: 'mp4'
+  },
+  'X': {
+    name: 'X',
+    resolution: '720x1280',
+    fps: 30,
+    videoCodec: 'libx264',
+    audioCodec: 'aac',
+    videoBitrate: '3000k',
+    maxBitrate: '3500k',
+    bufSize: '6000k',
+    audioBitrate: '128k',
+    pixelFormat: 'yuv420p',
+    gop: 60,
+    preset: 'slow',
+    crf: 24,
+    faststart: true,
+    audioSampleRate: 44100,
+    colorSpace: 'bt709',
+    container: 'mp4'
+  },
+  'Snapchat': {
+    name: 'Snapchat',
+    resolution: '1080x1920',
+    fps: 30,
+    videoCodec: 'libx264',
+    audioCodec: 'aac',
+    videoBitrate: '5000k',
+    maxBitrate: '5000k',
+    bufSize: '10000k',
+    audioBitrate: '128k',
+    pixelFormat: 'yuv420p',
+    gop: 30,
+    preset: 'medium',
+    crf: 23,
+    faststart: true,
+    audioSampleRate: 44100,
+    colorSpace: 'bt709',
+    container: 'mp4'
+  },
+  'LinkedIn': {
+    name: 'LinkedIn',
+    resolution: '1080x1920',
+    fps: 30,
+    videoCodec: 'libx264',
+    audioCodec: 'aac',
+    videoBitrate: '4000k',
+    maxBitrate: '4000k',
+    bufSize: '8000k',
+    audioBitrate: '128k',
+    pixelFormat: 'yuv420p',
+    gop: 30,
+    preset: 'medium',
+    crf: 24,
+    faststart: true,
+    audioSampleRate: 44100,
+    colorSpace: 'bt709',
+    container: 'mp4'
+  }
+};
