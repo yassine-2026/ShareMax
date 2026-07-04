@@ -16,6 +16,24 @@ if (!fs.existsSync(TMP_DIR)) {
   fs.mkdirSync(TMP_DIR, { recursive: true });
 }
 
+// Cleanup old files periodically (every hour)
+setInterval(() => {
+  try {
+    const files = fs.readdirSync(TMP_DIR);
+    const now = Date.now();
+    files.forEach(file => {
+      const filePath = path.join(TMP_DIR, file);
+      const stats = fs.statSync(filePath);
+      // Delete files older than 2 hours
+      if (now - stats.mtimeMs > 2 * 60 * 60 * 1000) {
+        fs.unlinkSync(filePath);
+      }
+    });
+  } catch (err) {
+    console.error('Failed to cleanup TMP_DIR:', err);
+  }
+}, 60 * 60 * 1000);
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, TMP_DIR),
   filename: (req, file, cb) => {
@@ -108,158 +126,171 @@ optimizeRouter.post('/start', (req, res) => {
   
   res.json({ success: true });
   
-  // Need to get original metadata to check if already optimized
-  ffmpeg.ffprobe(sourcePath, (err, originalMetadata) => {
-    if (err) {
-      platforms.forEach(p => {
-        jobState[p].status = 'error';
-        jobState[p].error = 'Failed to analyze original video for optimization check';
+  // Start async processing
+  (async () => {
+    try {
+      const originalMetadata = await new Promise<any>((resolve, reject) => {
+        ffmpeg.ffprobe(sourcePath, (err, metadata) => {
+          if (err) reject(err);
+          else resolve(metadata);
+        });
       });
-      return;
-    }
 
-    const videoStream = originalMetadata.streams.find(s => s.codec_type === 'video');
-    const audioStream = originalMetadata.streams.find(s => s.codec_type === 'audio');
-    
-    const origCodec = videoStream?.codec_name;
-    const origPixFmt = videoStream?.pix_fmt;
-    const origContainer = originalMetadata.format.format_name?.includes('mp4') ? 'mp4' : 'other';
-    const origBitrateStr = originalMetadata.format.bit_rate as string | number | undefined;
-    const origBitrate = origBitrateStr ? Number(origBitrateStr) : Infinity;
-
-    platforms.forEach(platform => {
-      const profile = platformProfiles[platform] || platformProfiles['TikTok'];
-      const outputPath = path.join(TMP_DIR, `${platform}_${jobId}.mp4`);
+      const videoStream = originalMetadata.streams.find((s: any) => s.codec_type === 'video');
+      const audioStream = originalMetadata.streams.find((s: any) => s.codec_type === 'audio');
       
-      const targetBitrateNum = parseInt(profile.videoBitrate) * 1000;
-      const origFps = videoStream?.r_frame_rate ? parseFloat(parseFps(videoStream.r_frame_rate)) : 0;
-      
-      // Heuristic for already optimized
-      const isOptimized = 
-        origCodec === profile.videoCodec.replace('lib', '') && 
-        origPixFmt === profile.pixelFormat && 
-        origContainer === profile.container && 
-        origFps <= profile.fps + 2 &&
-        origBitrate <= targetBitrateNum * 1.2; // Allow 20% margin
-        
-      if (isOptimized) {
-        fs.copyFileSync(sourcePath, outputPath);
-        jobState[platform].status = 'completed';
-        jobState[platform].progress = 100;
-        jobState[platform].remainingTime = '0s';
-        jobState[platform].elapsedTime = '0s';
-        jobState[platform].outputFile = `${platform}_${jobId}.mp4`;
-        jobState[platform].message = 'Already optimized for this platform.';
-        
-        jobState[platform].resultMetadata = {
-          resolution: videoStream ? `${videoStream.width}x${videoStream.height}` : 'N/A',
-          fps: parseFps(videoStream?.r_frame_rate),
-          codec: videoStream?.codec_name || 'N/A',
-          bitrate: origBitrateStr ? (Number(origBitrateStr) / 1000).toFixed(0) + ' kbps' : 'N/A',
-          pixelFormat: videoStream?.pix_fmt || 'N/A',
-          audioCodec: audioStream?.codec_name || 'N/A',
-          fileSize: (fs.statSync(outputPath).size / (1024 * 1024)).toFixed(2) + ' MB',
-          appliedSettings: {
-            preset: 'N/A (Copied)',
-            crf: 'N/A (Copied)',
-            videoBitrate: 'N/A (Copied)',
-            audioBitrate: 'N/A (Copied)',
-            container: 'N/A (Copied)'
-          }
-        };
-        return;
-      }
-      
-      jobState[platform].status = 'processing';
-      jobState[platform].outputFile = `${platform}_${jobId}.mp4`;
-      
-      const outputOptions = [
-        '-profile:v high',
-        `-pix_fmt ${profile.pixelFormat}`,
-        `-g ${profile.gop}`,
-        `-preset ${profile.preset}`,
-        `-crf ${profile.crf}`,
-        `-b:v ${profile.videoBitrate}`,
-        `-maxrate ${profile.maxBitrate}`,
-        `-bufsize ${profile.bufSize}`,
-        `-b:a ${profile.audioBitrate}`,
-        `-ar ${profile.audioSampleRate}`,
-        `-colorspace ${profile.colorSpace}`,
-        '-map_metadata -1'
-      ];
+      const origCodec = videoStream?.codec_name;
+      const origPixFmt = videoStream?.pix_fmt;
+      const origContainer = originalMetadata.format.format_name?.includes('mp4') ? 'mp4' : 'other';
+      const origBitrateStr = originalMetadata.format.bit_rate as string | number | undefined;
+      const origBitrate = origBitrateStr ? Number(origBitrateStr) : Infinity;
 
-      if (profile.faststart) {
-        outputOptions.push('-movflags +faststart');
-      }
-
-      // Create an instance of ffmpeg for each platform
-      const command = ffmpeg(sourcePath)
-      .videoCodec(profile.videoCodec)
-      .audioCodec(profile.audioCodec)
-      .outputOptions(outputOptions)
-      .size(profile.resolution)
-      .autopad(true, 'black')
-      .fps(profile.fps)
-      .format(profile.container);
-
-    command
-      .on('start', () => {
-        jobState[platform].startTime = Date.now();
-      })
-      .on('progress', (progress) => {
-        const percent = Math.min(Math.round(progress.percent || 0), 99);
-        jobState[platform].progress = percent;
-        
-        if (jobState[platform].startTime) {
-          const elapsedMs = Date.now() - jobState[platform].startTime;
-          jobState[platform].elapsedTime = Math.round(elapsedMs / 1000) + 's';
+      for (const platform of platforms) {
+        await new Promise<void>((resolvePlatform) => {
+          const profile = platformProfiles[platform] || platformProfiles['TikTok'];
+          const outputPath = path.join(TMP_DIR, `${platform}_${jobId}.mp4`);
           
-          if (percent > 0) {
-            const totalEst = elapsedMs / (percent / 100);
-            const remaining = Math.round((totalEst - elapsedMs) / 1000);
-            jobState[platform].remainingTime = remaining + 's';
-          }
-        }
-      })
-      .on('end', () => {
-        jobState[platform].status = 'completed';
-        jobState[platform].progress = 100;
-        jobState[platform].remainingTime = '0s';
-        
-        ffmpeg.ffprobe(outputPath, (err, metadata) => {
-          if (!err) {
-            const videoStream = metadata.streams.find(s => s.codec_type === 'video');
-            const audioStream = metadata.streams.find(s => s.codec_type === 'audio');
+          const targetBitrateNum = parseInt(profile.videoBitrate) * 1000;
+          const origFps = videoStream?.r_frame_rate ? parseFloat(parseFps(videoStream.r_frame_rate)) : 0;
+          
+          // Heuristic for already optimized
+          const isOptimized = 
+            origCodec === profile.videoCodec.replace('lib', '') && 
+            origPixFmt === profile.pixelFormat && 
+            origContainer === profile.container && 
+            origFps <= profile.fps + 2 &&
+            origBitrate <= targetBitrateNum * 1.2; // Allow 20% margin
+            
+          if (isOptimized) {
+            fs.copyFileSync(sourcePath, outputPath);
+            jobState[platform].status = 'completed';
+            jobState[platform].progress = 100;
+            jobState[platform].remainingTime = '0s';
+            jobState[platform].elapsedTime = '0s';
+            jobState[platform].outputFile = `${platform}_${jobId}.mp4`;
+            jobState[platform].message = 'Already optimized for this platform.';
             
             jobState[platform].resultMetadata = {
               resolution: videoStream ? `${videoStream.width}x${videoStream.height}` : 'N/A',
               fps: parseFps(videoStream?.r_frame_rate),
               codec: videoStream?.codec_name || 'N/A',
-              bitrate: metadata.format.bit_rate ? (Number(metadata.format.bit_rate) / 1000).toFixed(0) + ' kbps' : 'N/A',
+              bitrate: origBitrateStr ? (Number(origBitrateStr) / 1000).toFixed(0) + ' kbps' : 'N/A',
               pixelFormat: videoStream?.pix_fmt || 'N/A',
               audioCodec: audioStream?.codec_name || 'N/A',
               fileSize: (fs.statSync(outputPath).size / (1024 * 1024)).toFixed(2) + ' MB',
               appliedSettings: {
-                preset: profile.preset,
-                crf: profile.crf,
-                videoBitrate: profile.videoBitrate,
-                audioBitrate: profile.audioBitrate,
-                container: profile.container
+                preset: 'N/A (Copied)',
+                crf: 'N/A (Copied)',
+                videoBitrate: 'N/A (Copied)',
+                audioBitrate: 'N/A (Copied)',
+                container: 'N/A (Copied)'
               }
             };
+            return resolvePlatform();
           }
-        });
-      })
-      .on('error', (err) => {
-        console.error(`Error processing ${platform}:`, err);
-        jobState[platform].status = 'error';
-        jobState[platform].error = err.message;
-      });
+          
+          jobState[platform].status = 'processing';
+          jobState[platform].outputFile = `${platform}_${jobId}.mp4`;
+          
+          const outputOptions = [
+            '-profile:v high',
+            `-pix_fmt ${profile.pixelFormat}`,
+            `-g ${profile.gop}`,
+            `-preset ${profile.preset}`,
+            `-crf ${profile.crf}`,
+            `-b:v ${profile.videoBitrate}`,
+            `-maxrate ${profile.maxBitrate}`,
+            `-bufsize ${profile.bufSize}`,
+            `-b:a ${profile.audioBitrate}`,
+            `-ar ${profile.audioSampleRate}`,
+            `-colorspace ${profile.colorSpace}`,
+            '-map_metadata -1'
+          ];
 
-    // Run the command
-    command.save(outputPath);
-  });
-  });
+          if (profile.faststart) {
+            outputOptions.push('-movflags +faststart');
+          }
+
+          // Create an instance of ffmpeg for each platform
+          const command = ffmpeg(sourcePath)
+            .videoCodec(profile.videoCodec)
+            .audioCodec(profile.audioCodec)
+            .outputOptions(outputOptions)
+            .size(profile.resolution)
+            .autopad(true, 'black')
+            .fps(profile.fps)
+            .format(profile.container);
+
+          command
+            .on('start', () => {
+              jobState[platform].startTime = Date.now();
+            })
+            .on('progress', (progress) => {
+              const percent = Math.min(Math.round(progress.percent || 0), 99);
+              jobState[platform].progress = percent;
+              
+              if (jobState[platform].startTime) {
+                const elapsedMs = Date.now() - jobState[platform].startTime;
+                jobState[platform].elapsedTime = Math.round(elapsedMs / 1000) + 's';
+                
+                if (percent > 0) {
+                  const totalEst = elapsedMs / (percent / 100);
+                  const remaining = Math.round((totalEst - elapsedMs) / 1000);
+                  jobState[platform].remainingTime = remaining + 's';
+                }
+              }
+            })
+            .on('end', () => {
+              jobState[platform].status = 'completed';
+              jobState[platform].progress = 100;
+              jobState[platform].remainingTime = '0s';
+              
+              ffmpeg.ffprobe(outputPath, (err, metadata) => {
+                if (!err) {
+                  const outVideoStream = metadata.streams.find(s => s.codec_type === 'video');
+                  const outAudioStream = metadata.streams.find(s => s.codec_type === 'audio');
+                  
+                  jobState[platform].resultMetadata = {
+                    resolution: outVideoStream ? `${outVideoStream.width}x${outVideoStream.height}` : 'N/A',
+                    fps: parseFps(outVideoStream?.r_frame_rate),
+                    codec: outVideoStream?.codec_name || 'N/A',
+                    bitrate: metadata.format.bit_rate ? (Number(metadata.format.bit_rate) / 1000).toFixed(0) + ' kbps' : 'N/A',
+                    pixelFormat: outVideoStream?.pix_fmt || 'N/A',
+                    audioCodec: outAudioStream?.codec_name || 'N/A',
+                    fileSize: (fs.statSync(outputPath).size / (1024 * 1024)).toFixed(2) + ' MB',
+                    appliedSettings: {
+                      preset: profile.preset,
+                      crf: profile.crf,
+                      videoBitrate: profile.videoBitrate,
+                      audioBitrate: profile.audioBitrate,
+                      container: profile.container
+                    }
+                  };
+                }
+                resolvePlatform();
+              });
+            })
+            .on('error', (err) => {
+              console.error(`Error processing ${platform}:`, err);
+              jobState[platform].status = 'error';
+              jobState[platform].error = err.message;
+              resolvePlatform();
+            });
+
+          // Run the command
+          command.save(outputPath);
+        });
+      }
+    } catch (err: any) {
+      console.error('Error in optimization loop:', err);
+      platforms.forEach(p => {
+        if (jobState[p].status === 'pending') {
+          jobState[p].status = 'error';
+          jobState[p].error = err?.message || 'Failed to analyze original video';
+        }
+      });
+    }
+  })();
 });
 
 optimizeRouter.get('/progress/:jobId', (req, res) => {
