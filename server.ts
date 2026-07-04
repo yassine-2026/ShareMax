@@ -1,3 +1,5 @@
+// @ts-ignore
+import archiver from 'archiver';
 import express from 'express';
 import session from 'express-session';
 import multer from 'multer';
@@ -281,7 +283,7 @@ app.get('/api/video/:id/analyze', requireAuth, async (req, res) => {
     
     await new Promise((resolve, reject) => {
       streamRes.data.pipe(dest);
-      dest.on('finish', resolve);
+      dest.on('finish', () => resolve(undefined as any));
       dest.on('error', reject);
     });
 
@@ -336,7 +338,7 @@ app.post('/api/video/:id/optimize', requireAuth, async (req, res) => {
         
         await new Promise((resolve, reject) => {
           streamRes.data.pipe(dest);
-          dest.on('finish', resolve);
+          dest.on('finish', () => resolve(undefined as any));
           dest.on('error', reject);
         });
 
@@ -599,6 +601,54 @@ app.get('/api/optimizer/download/:fileId', (req, res) => {
   } else {
     res.sendFile(filePath);
   }
+});
+
+
+
+const zipJobs = new Map();
+
+app.post('/api/optimizer/prepare-zip', (req, res) => {
+  const { files } = req.body;
+  if (!files || !Array.isArray(files)) {
+    return res.status(400).json({ error: 'Invalid files array' });
+  }
+  
+  const zipId = 'zip_' + Math.random().toString(36).substring(2, 15);
+  zipJobs.set(zipId, files);
+  
+  res.json({ zipId });
+});
+
+app.get('/api/optimizer/download-zip/:zipId', (req, res) => {
+  const zipId = req.params.zipId;
+  const files = zipJobs.get(zipId);
+  
+  if (!files) {
+    return res.status(404).send('ZIP job not found or expired');
+  }
+  
+  res.attachment('optimized_videos.zip');
+  const archive = archiver('zip', {
+    zlib: { level: 9 } // Sets the compression level.
+  });
+  
+  archive.on('error', function(err) {
+    res.status(500).send({error: err.message});
+  });
+  
+  archive.pipe(res);
+  
+  for (const file of files) {
+    const filePath = path.join(os.tmpdir(), file.fileId);
+    if (fs.existsSync(filePath)) {
+      archive.file(filePath, { name: file.name });
+    }
+  }
+  
+  archive.finalize();
+  
+  // Optionally remove the job from memory after some time or immediately
+  // zipJobs.delete(zipId); 
 });
 
 // Vite middleware for development or serving static files in production

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { UploadCloud, File, X, Image as ImageIcon, Film, CheckCircle2, Download } from 'lucide-react';
+import { UploadCloud, File, X, Image as ImageIcon, Film, CheckCircle2, Download, Video } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -8,7 +8,7 @@ import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
-interface UploadFile extends window.File {
+interface UploadFile extends File {
   preview?: string;
   progress: number;
   status: 'pending' | 'uploading' | 'completed' | 'error';
@@ -23,7 +23,7 @@ export const Upload = () => {
   const [isUploading, setIsUploading] = useState(false);
   const xhrRefs = useRef<Record<string, XMLHttpRequest>>({});
 
-  const onDrop = useCallback((acceptedFiles: window.File[]) => {
+  const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map((file) => Object.assign(file, {
       preview: (file.type || '').startsWith('image/') ? URL.createObjectURL(file) : undefined,
       progress: 0,
