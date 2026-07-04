@@ -57,7 +57,8 @@ export const Home = () => {
               </Link>
               <Link to="/optimizer">
                 <Button variant="secondary" size="lg" className="w-full sm:w-auto text-lg px-8 h-14">
-                  <Zap className="mr-2 w-5 h-5" /> Optimize for Social Media
+                  Optimize for Social Media
+                  <Zap className="ml-2 w-5 h-5" />
                 </Button>
               </Link>
               <Link to="/dashboard">
