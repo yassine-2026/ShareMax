@@ -6,6 +6,7 @@ import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import os from 'os';
 const archiver = require('archiver');
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
@@ -145,21 +146,38 @@ optimizeRouter.post('/start', (req, res) => {
       const origBitrateStr = originalMetadata.format.bit_rate as string | number | undefined;
       const origBitrate = origBitrateStr ? Number(origBitrateStr) : Infinity;
 
-      for (const platform of platforms) {
-        await new Promise<void>((resolvePlatform) => {
+      const concurrencyLimit = Math.max(1, os.cpus().length - 1);
+      console.log(`[Job ${jobId}] Processing ${platforms.length} platforms with concurrency ${concurrencyLimit}`);
+
+      let platformIndex = 0;
+      const processNextPlatform = async () => {
+        while (platformIndex < platforms.length) {
+          const platform = platforms[platformIndex++];
+          await new Promise<void>((resolvePlatform) => {
           const profile = platformProfiles[platform] || platformProfiles['TikTok'];
           const outputPath = path.join(TMP_DIR, `${platform}_${jobId}.mp4`);
           
           const targetBitrateNum = parseInt(profile.videoBitrate) * 1000;
           const origFps = videoStream?.r_frame_rate ? parseFloat(parseFps(videoStream.r_frame_rate)) : 0;
+          const origWidth = videoStream?.width || 0;
+          const origHeight = videoStream?.height || 0;
           
-          // Heuristic for already optimized
-          const isOptimized = 
-            origCodec === profile.videoCodec.replace('lib', '') && 
-            origPixFmt === profile.pixelFormat && 
-            origContainer === profile.container && 
-            origFps <= profile.fps + 2 &&
-            origBitrate <= targetBitrateNum * 1.2; // Allow 20% margin
+          const [targetWidth, targetHeight] = profile.resolution.split('x').map(Number);
+          
+          const isResolutionMatch = (origWidth === targetWidth && origHeight === targetHeight) || 
+                                    (origWidth === targetHeight && origHeight === targetWidth); // allow rotated
+                                    
+          const isCodecMatch = origCodec === profile.videoCodec.replace('lib', '');
+          const isFpsMatch = origFps > 0 && Math.abs(origFps - profile.fps) <= 2;
+          const isBitrateMatch = origBitrate <= targetBitrateNum * 1.2;
+          
+          // Can we copy video without re-encoding?
+          // We can copy if codec, resolution, and fps match, and bitrate isn't wildly high
+          const canCopyVideo = isCodecMatch && isResolutionMatch && isFpsMatch && isBitrateMatch;
+          const canCopyAudio = audioStream?.codec_name === profile.audioCodec;
+          
+          // Heuristic for already completely optimized (container also matches)
+          const isOptimized = canCopyVideo && canCopyAudio && origContainer === profile.container;
             
           if (isOptimized) {
             fs.copyFileSync(sourcePath, outputPath);
@@ -192,42 +210,78 @@ optimizeRouter.post('/start', (req, res) => {
           jobState[platform].status = 'processing';
           jobState[platform].outputFile = `${platform}_${jobId}.mp4`;
           
-          const outputOptions = [
-            '-profile:v high',
-            `-pix_fmt ${profile.pixelFormat}`,
-            `-g ${profile.gop}`,
-            `-preset ${profile.preset}`,
-            `-crf ${profile.crf}`,
-            `-b:v ${profile.videoBitrate}`,
-            `-maxrate ${profile.maxBitrate}`,
-            `-bufsize ${profile.bufSize}`,
-            `-b:a ${profile.audioBitrate}`,
-            `-ar ${profile.audioSampleRate}`,
-            `-colorspace ${profile.colorSpace}`,
-            '-map_metadata -1'
-          ];
+          const outputOptions: string[] = ['-nostdin', '-map_metadata -1'];
 
           if (profile.faststart) {
             outputOptions.push('-movflags +faststart');
           }
 
-          // Create an instance of ffmpeg for each platform
-          const command = ffmpeg(sourcePath)
-            .videoCodec(profile.videoCodec)
-            .audioCodec(profile.audioCodec)
-            .outputOptions(outputOptions)
-            .size(profile.resolution)
-            .autopad(true, 'black')
-            .fps(profile.fps)
-            .format(profile.container);
+          const command = ffmpeg(sourcePath);
+          
+          if (canCopyVideo) {
+            command.videoCodec('copy');
+            outputOptions.push('-map 0:v');
+          } else {
+            command.videoCodec(profile.videoCodec)
+                   .size(profile.resolution)
+                   .autopad(true as any, 'black')
+                   .fps(profile.fps);
+                   
+            outputOptions.push(
+              '-profile:v high',
+              `-pix_fmt ${profile.pixelFormat}`,
+              `-g ${profile.gop}`,
+              `-preset ${profile.preset}`,
+              `-crf ${profile.crf}`,
+              `-b:v ${profile.videoBitrate}`,
+              `-maxrate ${profile.maxBitrate}`,
+              `-bufsize ${profile.bufSize}`,
+              `-colorspace ${profile.colorSpace}`
+            );
+          }
+          
+          if (audioStream) {
+            if (canCopyAudio) {
+              command.audioCodec('copy');
+              outputOptions.push('-map 0:a?');
+            } else {
+              command.audioCodec(profile.audioCodec);
+              outputOptions.push(
+                `-b:a ${profile.audioBitrate}`,
+                `-ar ${profile.audioSampleRate}`
+              );
+            }
+          } else {
+            // No audio stream
+            outputOptions.push('-an');
+          }
+
+          command.outputOptions(outputOptions).format(profile.container);
+
+          console.log(`[Job ${jobId}] Start processing ${platform}`);
+          console.log(`[Job ${jobId}] Output path: ${outputPath}`);
 
           command
-            .on('start', () => {
+            .on('start', (commandLine) => {
+              console.log(`[Job ${jobId}] Running FFmpeg command: ${commandLine}`);
               jobState[platform].startTime = Date.now();
             })
             .on('progress', (progress) => {
-              const percent = Math.min(Math.round(progress.percent || 0), 99);
-              jobState[platform].progress = percent;
+              // fluent-ffmpeg progress.percent is sometimes NaN or undefined if duration is unknown
+              let percent = 0;
+              if (progress.percent) {
+                percent = Math.min(Math.round(progress.percent), 99);
+              } else if (progress.timemark) {
+                // If percent is missing but we have timemark, we could parse it, but let's stick to fluent-ffmpeg's percent if available.
+                // Or we can just log frames.
+                percent = jobState[platform].progress || 0;
+                if (percent < 95) percent += 1; // Fake progress if duration is unknown to avoid staying at 0
+              }
+              
+              if (percent > (jobState[platform].progress || 0)) {
+                jobState[platform].progress = percent;
+                console.log(`[Job ${jobId}] Current progress for ${platform}: ${percent}%`);
+              }
               
               if (jobState[platform].startTime) {
                 const elapsedMs = Date.now() - jobState[platform].startTime;
@@ -241,6 +295,16 @@ optimizeRouter.post('/start', (req, res) => {
               }
             })
             .on('end', () => {
+              console.log(`[Job ${jobId}] End processing ${platform}`);
+              // Check if output file actually exists and has size > 0
+              if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size === 0) {
+                console.error(`[Job ${jobId}] Error: Output file was not created or is empty for ${platform}`);
+                jobState[platform].status = 'error';
+                jobState[platform].error = 'Output file was not created successfully';
+                resolvePlatform();
+                return;
+              }
+
               jobState[platform].status = 'completed';
               jobState[platform].progress = 100;
               jobState[platform].remainingTime = '0s';
@@ -266,21 +330,29 @@ optimizeRouter.post('/start', (req, res) => {
                       container: profile.container
                     }
                   };
+                } else {
+                  console.error(`[Job ${jobId}] Error analyzing output for ${platform}:`, err.message);
                 }
                 resolvePlatform();
               });
             })
-            .on('error', (err) => {
-              console.error(`Error processing ${platform}:`, err);
+            .on('error', (err, stdout, stderr) => {
+              console.error(`[Job ${jobId}] Error message for ${platform}:`, err.message);
+              console.error(`[Job ${jobId}] FFmpeg stderr:`, stderr);
               jobState[platform].status = 'error';
-              jobState[platform].error = err.message;
+              jobState[platform].error = err.message || 'Unknown FFmpeg error';
               resolvePlatform();
             });
 
           // Run the command
           command.save(outputPath);
         });
-      }
+        }
+      };
+
+      const workers = Array(concurrencyLimit).fill(0).map(() => processNextPlatform());
+      await Promise.all(workers);
+      
     } catch (err: any) {
       console.error('Error in optimization loop:', err);
       platforms.forEach(p => {
